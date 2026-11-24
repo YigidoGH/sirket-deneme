@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS projects (
     manager_id BIGINT UNSIGNED NULL,
     name VARCHAR(160) NOT NULL,
     description TEXT NOT NULL,
+    internal_note TEXT NULL,
     status ENUM('active', 'paused', 'completed') NOT NULL DEFAULT 'active',
     client_visible TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     CONSTRAINT fk_tasks_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
     CONSTRAINT fk_tasks_assignee FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_tasks_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE KEY uq_task_project_title (project_id, title),
     INDEX idx_tasks_project_status (project_id, status),
     INDEX idx_tasks_assignee_status (assignee_id, status),
     INDEX idx_tasks_due_date (due_date)

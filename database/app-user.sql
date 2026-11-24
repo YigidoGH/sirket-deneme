@@ -1,0 +1,6 @@
+CREATE USER IF NOT EXISTS 'deliverdesk_app'@'127.0.0.1'
+    IDENTIFIED BY 'REPLACE_WITH_A_STRONG_PASSWORD';
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON deliverdesk.*
+    TO 'deliverdesk_app'@'127.0.0.1';
