@@ -1,7 +1,17 @@
 <?php
 declare(strict_types=1);
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 require_once __DIR__ . '/../includes/bootstrap.php';
+
+if ((getenv('APP_ENV') ?: 'production') !== 'local') {
+    fwrite(STDERR, "Demo verileri yalnızca APP_ENV=local iken yüklenebilir.\n");
+    exit(1);
+}
 
 $pdo = db();
 $pdo->beginTransaction();
@@ -45,25 +55,25 @@ try {
     $findUser = $pdo->prepare('SELECT id FROM users WHERE email = ?');
     $findProject = $pdo->prepare('SELECT id FROM projects WHERE company_id = ? AND name = ?');
     $projectInsert = $pdo->prepare(
-        'INSERT INTO projects (company_id, manager_id, name, description, status, client_visible)
-         VALUES (?, ?, ?, ?, "active", 1)
+        'INSERT INTO projects (company_id, manager_id, name, description, internal_note, status, client_visible)
+         VALUES (?, ?, ?, ?, ?, "active", 1)
          ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)'
     );
     $memberInsert = $pdo->prepare('INSERT IGNORE INTO project_members (project_id, user_id) VALUES (?, ?)');
 
     $projectRows = [
-        ['Şirket 1', 'Proje 1', 'Şirket 1 için örnek teslim ve revizyon projesi.', 'pm1@deliverdesk.test', ['uzman1@deliverdesk.test']],
-        ['Şirket 2', 'Proje 2', 'Şirket 2 için örnek web projesi.', 'pm1@deliverdesk.test', ['uzman2@deliverdesk.test']],
-        ['Şirket 1', 'Proje 3', 'Şirket 1 için ikinci örnek proje.', 'pm1@deliverdesk.test', ['uzman1@deliverdesk.test']],
+        ['Şirket 1', 'Proje 1', 'Şirket 1 için örnek teslim ve revizyon projesi.', 'Ekip notu 1: Tasarım tesliminden önce marka kılavuzunu kontrol et.', 'pm1@deliverdesk.test', ['uzman1@deliverdesk.test']],
+        ['Şirket 2', 'Proje 2', 'Şirket 2 için örnek web projesi.', 'Ekip notu 2: Yayın kontrolünü proje yöneticisiyle tamamla.', 'pm1@deliverdesk.test', ['uzman2@deliverdesk.test']],
+        ['Şirket 1', 'Proje 3', 'Şirket 1 için ikinci örnek proje.', 'Ekip notu 3: Test senaryolarını teslim listesine ekle.', 'pm1@deliverdesk.test', ['uzman1@deliverdesk.test']],
     ];
     $projectIds = [];
 
-    foreach ($projectRows as [$companyName, $projectName, $description, $managerEmail, $memberEmails]) {
+    foreach ($projectRows as [$companyName, $projectName, $description, $internalNote, $managerEmail, $memberEmails]) {
         $findCompany->execute([$companyName]);
         $companyId = (int)$findCompany->fetchColumn();
         $findUser->execute([$managerEmail]);
         $managerId = (int)$findUser->fetchColumn();
-        $projectInsert->execute([$companyId, $managerId, $projectName, $description]);
+        $projectInsert->execute([$companyId, $managerId, $projectName, $description, $internalNote]);
         $findProject->execute([$companyId, $projectName]);
         $projectId = (int)$findProject->fetchColumn();
         $projectIds[$projectName] = $projectId;
@@ -76,9 +86,8 @@ try {
     }
 
     $taskInsert = $pdo->prepare(
-        'INSERT INTO tasks (project_id, assignee_id, created_by, title, description, status, priority, due_date, client_visible, internal_note)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-         WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE project_id = ? AND title = ?)'
+        'INSERT IGNORE INTO tasks (project_id, assignee_id, created_by, title, description, status, priority, due_date, client_visible, internal_note)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $taskRows = [
         ['Proje 1', 'uzman1@deliverdesk.test', 'İş kalemi 1', 'İlk örnek teslim kalemi.', 'in_progress', 'high', '2026-12-03', 1, 'Ekip içi geliştirme notu 1.'],
@@ -94,10 +103,7 @@ try {
         $assigneeId = (int)$findUser->fetchColumn();
         $creatorId = $managerId;
         $projectId = (int)$projectIds[$projectName];
-        $taskInsert->execute([
-            $projectId, $assigneeId, $creatorId, $title, $description, $status, $priority, $due, $visible, $note,
-            $projectId, $title,
-        ]);
+        $taskInsert->execute([$projectId, $assigneeId, $creatorId, $title, $description, $status, $priority, $due, $visible, $note]);
     }
 
     $pdo->commit();

@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-$envFile = dirname(__DIR__) . '/.env';
+$configuredEnvFile = getenv('DELIVERDESK_ENV_FILE');
+$envFile = $configuredEnvFile ?: dirname(__DIR__, 3) . '/etc/deliverdesk.env';
 if (is_file($envFile)) {
     foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
         $line = trim($line);
@@ -38,17 +39,33 @@ function db(): PDO
     $user = getenv('DB_USER') ?: '';
     $password = getenv('DB_PASSWORD') ?: '';
     if ($user === '') {
-        throw new RuntimeException('Veritabanı bağlantısı yapılandırılmamış. .env dosyasındaki DB_USER ve DB_PASSWORD değerlerini ayarlayın.');
+        database_setup_required();
     }
 
     $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $name);
-    $pdo = new PDO($dsn, $user, $password, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ]);
+    try {
+        $pdo = new PDO($dsn, $user, $password, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
+        $pdo->query('SELECT id FROM users LIMIT 0');
+    } catch (PDOException $exception) {
+        error_log('DeliverDesk database setup error: ' . $exception->getMessage());
+        database_setup_required();
+    }
 
     return $pdo;
+}
+
+function database_setup_required(): never
+{
+    if (PHP_SAPI === 'cli') {
+        throw new RuntimeException('MySQL bağlantısını ve şema kurulumunu yapılandırın (.env, database/schema.sql).');
+    }
+    http_response_code(503);
+    require dirname(__DIR__) . '/database/setup-required.php';
+    exit;
 }
 
 function e(mixed $value): string
@@ -219,12 +236,12 @@ function visible_projects(array $user): array
         $params[] = $companyId;
     }
     if ($user['role'] === 'client') {
-        $sql .= ' AND t.client_visible = 1';
+        $sql = str_replace('LEFT JOIN tasks t ON t.project_id = p.id', 'LEFT JOIN tasks t ON t.project_id = p.id AND t.client_visible = 1', $sql);
     }
     if ($where) {
         $sql .= ' WHERE ' . implode(' AND ', $where);
     }
-    $sql .= ' GROUP BY p.id ORDER BY p.updated_at DESC, p.id DESC';
+    $sql .= ' GROUP BY p.id, c.id, u.id ORDER BY p.updated_at DESC, p.id DESC';
 
     $statement = db()->prepare($sql);
     $statement->execute($params);
